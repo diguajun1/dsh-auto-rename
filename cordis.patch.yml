@@ -1,0 +1,8 @@
+# dsh-auto-rename bundle patch: mount the plugin as one row.
+# The command is registered against the global ctx.commands surface, which
+# the dsh web UI command plane discovers; the model-facing rename tool is
+# registered lazily on ctx.tools from the command handler.
+- insert:
+    - id: dsh-auto-rename
+      name: dsh-auto-rename
+      inject: [commands]

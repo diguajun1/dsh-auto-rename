@@ -1,0 +1,36 @@
+{
+  "name": "dsh-auto-rename",
+  "version": "0.1.0",
+  "description": "DSH Web slash command /auto-rename: have the AI read the whole session and rename it automatically to YYYY-MM-DD_语义名. DSH Web 输入框斜杠命令 /auto-rename：让 AI 通读整个会话并自动改名为 YYYY-MM-DD_语义名。",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "cordis",
+    "session",
+    "rename",
+    "slash-command"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "license": "MIT"
+}
