@@ -138,11 +138,37 @@ function makeFakeCmdCtx(record) {
   }
 }
 
+function runGenerator(gen) {
+  const it = gen()
+  let step = it.next()
+  while (!step.done) step = it.next(step.value)
+  return step.value
+}
+
 function makeFakeAppCtx() {
-  const record = { definition: undefined, followups: [] }
+  const record = { definition: undefined, followups: [], tools: [] }
+  const cmdCtx = makeFakeCmdCtx(record)
   const ctx = {
     __dshAutoRenameTool: undefined,
-    inject: (names, callback) => callback(makeFakeCmdCtx(record)),
+    tools: {
+      register: (definition) => {
+        record.tools.push(definition)
+        return () => {}
+      },
+    },
+    commands: cmdCtx.commands,
+    effect: (gen) => {
+      try {
+        runGenerator(gen)
+      } catch {
+        // registration errors degrade silently in tests too
+      }
+      return () => {}
+    },
+    inject: (names, callback) => {
+      if (Array.isArray(names) && names.includes('commands')) callback(cmdCtx)
+      return undefined
+    },
     get: (key) => (key === 'sessionTitle' ? { rename: () => ({ title: 'x' }) } : undefined),
     sessions: {},
   }
@@ -155,6 +181,14 @@ test('apply registers the /auto-rename command through the commands surface', ()
   assert.ok(record.definition)
   assert.equal(record.definition.name, 'auto-rename')
   assert.equal(typeof record.definition.handler, 'function')
+})
+
+test('apply registers the rename_current_session tool at plugin load time', () => {
+  const { ctx, record } = makeFakeAppCtx()
+  apply(ctx)
+  assert.equal(record.tools.length, 1)
+  assert.equal(record.tools[0].name, 'rename_current_session')
+  assert.equal(ctx.__dshAutoRenameTool, true)
 })
 
 test('command handler with a session but no tools seam degrades to a success text', async () => {
