@@ -214,3 +214,43 @@ test('command handler rejects non-empty rawInput like /rename-style usage', asyn
   assert.equal(result.kind, 'error')
   assert.match(result.text, /Usage: \/auto-rename/)
 })
+
+test('command handler enqueues an identified user message', async () => {
+  const { ctx, record } = makeFakeAppCtx()
+  apply(ctx)
+  const sent = []
+  const agent = {
+    session: {
+      snapshotEvents: () => [
+        { type: 'session/end-seed', time: new Date(2026, 0, 15, 12, 0, 0).getTime() },
+      ],
+    },
+    followup: (message) => sent.push(message),
+  }
+  const result = await record.definition.handler({ agent, rawInput: '' })
+  assert.equal(result.kind, 'success')
+  assert.equal(sent.length, 1)
+  // The host persists this message verbatim; a missing id/role makes the
+  // whole Session unreadable for the released-v0 validator.
+  assert.equal(sent[0].role, 'user')
+  assert.equal(typeof sent[0].id, 'string')
+  assert.ok(sent[0].id.length > 0)
+  assert.deepEqual(sent[0].source, { kind: 'plugin', plugin: 'dsh-auto-rename' })
+  assert.equal(sent[0].content.length, 1)
+  assert.equal(sent[0].content[0].type, 'text')
+  assert.ok(sent[0].content[0].text.includes('rename_current_session'))
+})
+
+test('two enqueued messages carry distinct identities', async () => {
+  const { ctx, record } = makeFakeAppCtx()
+  apply(ctx)
+  const sent = []
+  const agent = {
+    session: { snapshotEvents: () => [{ type: 'session/end-seed', time: Date.now() }] },
+    followup: (message) => sent.push(message),
+  }
+  await record.definition.handler({ agent, rawInput: '' })
+  await record.definition.handler({ agent, rawInput: '' })
+  assert.equal(sent.length, 2)
+  assert.notEqual(sent[0].id, sent[1].id)
+})
