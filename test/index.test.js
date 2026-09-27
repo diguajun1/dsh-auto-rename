@@ -230,12 +230,13 @@ test('command handler enqueues an identified user message', async () => {
   const result = await record.definition.handler({ agent, rawInput: '' })
   assert.equal(result.kind, 'success')
   assert.equal(sent.length, 1)
-  // The host persists this message verbatim; a missing id/role makes the
-  // whole Session unreadable for the released-v0 validator.
+  // The host persists this message verbatim; a missing id/role, or the
+  // retired `{ kind: 'plugin', plugin }` wrapper, makes the whole Session
+  // unreadable (format v4 requires a producer-owned `plugin:<name>` kind).
   assert.equal(sent[0].role, 'user')
   assert.equal(typeof sent[0].id, 'string')
   assert.ok(sent[0].id.length > 0)
-  assert.deepEqual(sent[0].source, { kind: 'plugin', plugin: 'dsh-auto-rename' })
+  assert.deepEqual(sent[0].source, { kind: 'plugin:dsh-auto-rename' })
   assert.equal(sent[0].content.length, 1)
   assert.equal(sent[0].content[0].type, 'text')
   assert.ok(sent[0].content[0].text.includes('rename_current_session'))
