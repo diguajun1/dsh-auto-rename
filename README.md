@@ -1,92 +1,87 @@
 # dsh-auto-rename
 
-[English](README.en.md)
+DSH Web 会话自动改名插件：让 AI 通读整个会话上下文，按 `YYYY-MM-DD_语义名` 的约定给会话起名并**自动应用**。
 
-DSH Web 输入框斜杠命令 `/auto-rename`：让模型通读整个会话，推荐一个带日期前缀的语义名，并自动完成改名。
+两种触发方式：
 
-效果：输入
+| 模式 | 触发 | 说明 |
+| --- | --- | --- |
+| 手动 | 输入框敲 `/auto-rename` | 立即让模型通读会话并改名 |
+| 空闲自动（v0.2.0 新增） | 每轮对话结束后，**无人操作满 5 分钟** | 自动注入一次命名回合并改名 |
 
-```text
-/auto-rename
+改名为可配置：`idleMs`（默认 `300000`，即 5 分钟）、`enabled`（默认 `true`）。
+
+## 为什么需要它
+
+会话标题默认是首条消息的截断，跨天的长会话在侧边栏里几乎无法区分。手写标题又容易漏掉日期前缀、或与开始日期对不上。本插件把「读全文 → 取概念 → 加日期前缀 → 落库」这一套流程交给模型 + 宿主协作完成：
+
+- **日期前缀由宿主侧计算**（取会话第一个事件时间戳，本地时区），不靠模型猜；
+- **改名走官方链路** `sessionTitle.rename()` → `sessions.flush()`，与侧边栏手动改名完全一致，刷新/重启不丢；
+- **不引入任何 `@deepseek-ai` 内部依赖**，不使用 peerDependencies，纯 JS、零原生依赖，macOS / Linux / Windows 通用。
+
+## 工作原理
+
+DSH 的命令面与模型面是分开的，插件两侧都要挂东西：
+
+1. **命令面**（宿主侧，不产生模型消息）：`ctx.inject(['commands'])` 注册 `/auto-rename`。
+2. **模型面**：`ctx.tools.register()` 注册一个模型可见工具 `rename_current_session`。命令处理器通过 `agent.followup()` 注入一条普通 user 消息（与官方 `/goal` 同一条通路），模型在自己的上下文里读完整个会话后调用该工具落库。
+3. **空闲自动**：宿主面监听 `session/event`。只有**人类**发起的消息（`user/message` 且 `source.kind === 'user'`）才为会话装一个 `setTimeout`；后续人类消息、下一轮 `turn/start`、会话销毁都会清掉它。计时器满窗存活时，注入与 `/auto-rename` **完全相同**的命名回合。
+
+两个状态位保证不会失控：
+
+- `awaitingRename`：吞掉「命名回合自己」的 `turn/end`，所以插件的输出不会再次触发改名；
+- `pendingUserTurn`：只有人类消息会置位，因此一段「人已停手的对话」最多改名一次。
+
+另有保护：
+
+- `agent.status === 'running'` 或 `inbox.nextTurn/nextStep` 非空时不注入，改为 15 秒后复查（有人的回合还在跑就不打断）；
+- `turn/end` 的 `reason.kind === 'blocked'`（等审批）不装计时器；
+- 子会话（有 `parentSessionId`）不处理；
+- 定时器 `unref()`，不会吊住宿主进程。
+
+## 配置
+
+`cordis.patch.yml`：
+
+```yaml
+- insert:
+    - id: dsh-auto-rename
+      name: dsh-auto-rename
+      inject: [commands]
+      config:
+        enabled: true
+        idleMs: 300000   # 5 分钟；也可写 idleMinutes: 5
 ```
 
-模型在**一个普通 AI 回合**内读完当前会话全文（不额外重复发送全文、不额外增加独立模型调用），按 recommend-new-session-name skill 的规则给出分行分点的输出：
-
-```text
-推荐：
-
-2026-08-08_会议纪要整理
-
-推荐原因：
-
-这段会话围绕某次会议纪要进行整理与归档
-
-改名方式：
-
-已通过 rename_current_session 自动应用。
-
-其他备选：
-
-- 2026-08-08_会议纪要
-- 会议纪要整理
-```
-
-会话标题随即变为 `2026-08-08_会议纪要整理`，与侧边栏手动改名走同一条官方链路（`sessionTitle.rename` + `sessions.flush`），刷新/恢复后标题不变。日期前缀 `YYYY-MM-DD` 取**会话开始日期**，由插件在宿主侧从会话日志计算，跨平台一致，不依赖模型猜测。
-
-## 为什么是"命令 + 模型回合"而不是命令直接改名
-
-DSH 的斜杠命令运行在 UI 命令平面，宿主侧执行、不经模型。若命令自己"读全文再取名"，就必须把整段对话作为一次独立模型请求的输入，等于把全文重复发送一遍，浪费 token。
-
-本插件让命令只负责触发：命令向当前会话注入一条 user 消息并唤醒驱动器（与官方 `/goal` 命令向 agent 投喂消息同一机制），模型在它**本来就在处理**的回合里读取全文并给出推荐，再调用插件注册的模型可见工具 `rename_current_session` 完成改名。因此 token 成本与直接让模型取名相当，不会重复发送全文；改名链路仍然官方、持久。
+- `enabled: false`：只关自动改名，`/auto-rename` 仍可用；
+- `idleMs`：安静窗口（毫秒），优先级高于 `idleMinutes`；
+- 非法/非正数回落到默认 5 分钟。
 
 ## 安装
-
-前置条件与 [dsh-rename](https://github.com/sci-zyf/dsh-rename) 相同：
-
-- 已全局安装 dsh CLI：`npm install -g @deepseek-ai/dsh`
-- Node.js ≥ 22.19（见 `package.json` engines 字段）
-- 已存在 web profile：`dsh profile list` 中应包含 `web`
-
-从 GitHub 仓库安装：
 
 ```bash
 dsh plugin --profile web add https://github.com/sci-zyf/dsh-auto-rename
 ```
 
-安装后重启 DSH（或 profile `patchReload: live` 时自动生效）。卸载：
+安装后重启 DSH（或 profile 配了 `patchReload: live` 时自动生效）。
 
-```bash
-dsh plugin --profile web remove dsh-auto-rename
-```
+> 从 git 安装的插件修改后会被重装覆盖；要长期生效请把改动提交回上面的仓库，或在本地路径安装
+> `dsh plugin add /path/to/dsh-auto-rename`。
 
 ## 使用
 
-在 DSH Web 输入框输入：
+- 输入框输入 `/auto-rename` 回车：模型读完全文后自动改名，并给出「推荐 / 推荐原因 / 改名方式 / 其他备选」。
+- 或者什么都不做，聊完离开 5 分钟：插件自动完成同样的流程。
+- 手动改回：侧边栏右键改名，或 `/rename <title>`。
 
-```text
-/auto-rename
-```
-
-命令不接受参数；需要手动指定标题时用 `/rename <title>`。模型回合结束后，标题即已应用；若此部署缺少模型可见工具能力，插件会自动降级为"只给出推荐名、请用 /rename 应用"，不会静默失败。
-
-## 宿主适配与平台
-
-- 适配 DSH 0.1.2-rc 系列（web profile）。
-- 纯 UI 命令插件 + 一个模型可见工具：不直接 import 任何 `@deepseek-ai` 内部包，不声明 peerDependencies。依赖的命令平面（`commands`）、会话接口（`sessionTitle`、`sessions`）、agent 消息注入面（`agent.followup`）与工具注册面（`tools`）均为 DSH 公开面；宿主升级时以实际运行验证为准，而非版本号约束。
-- 纯 JS 实现，不调用 shell、不依赖文件系统，日期前缀在宿主进程内用 JavaScript 计算，因此在 macOS / Linux / Windows 行为一致。
-- 源码通过 GitHub 仓库分发，不发布 npm。
-
-## 实现
-
-- `lib/index.js`：cordis 插件，`ctx.inject(['commands'])` 就绪后注册 `/auto-rename`。
-- 命令 handler 在宿主侧计算会话开始日期 `YYYY-MM-DD`，构造命名指令，经 `agent.followup` 唤醒主模型回合。
-- 回合内模型调用本插件注册的 `rename_current_session` 工具，工具内部 `sessionTitle.rename(session, title)` 接受标题、`sessions.flush(session)` 持久化——与 dsh-rename 的 apply 链路一致。
-- 注册面与生命周期事件对齐 `@deepseek-ai/dsh-commands`、`@deepseek-ai/dsh-tools` 契约；工具在首次执行命令时惰性注册，宿主缺少工具服务时自动降级。
-
-## 测试
+## 开发
 
 ```bash
-npm test
+npm test   # node --test test/，纯函数 + 空闲状态机
 ```
 
-测试覆盖日期前缀计算、标题规范化、命名指令文本结构、改名工具的官方链路调用与各类降级路径。
+`test/idle.test.js` 用假的服务面（`agents.list()` / `followup` / `session/event`）验证：只有人类消息才装计时器、命名回合不会自我触发、忙时不注入、子会话跳过、销毁清计时器、`enabled: false` 静默。
+
+## 许可
+
+MIT

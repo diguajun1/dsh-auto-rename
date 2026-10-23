@@ -1,7 +1,7 @@
 {
   "name": "dsh-auto-rename",
-  "version": "0.1.0",
-  "description": "DSH Web slash command /auto-rename: have the AI read the whole session and rename it automatically to YYYY-MM-DD_语义名. DSH Web 输入框斜杠命令 /auto-rename：让 AI 通读整个会话并自动改名为 YYYY-MM-DD_语义名。",
+  "version": "0.2.0",
+  "description": "DSH Web /auto-rename: have the AI read the whole session and rename it automatically to YYYY-MM-DD_语义名 — on demand as a slash command, or by itself after a configurable idle window (default 5 minutes). DSH Web 斜杠命令 /auto-rename + 空闲自动改名：每轮对话结束后无人操作满 5 分钟，自动让 AI 通读会话并改名为 YYYY-MM-DD_语义名。",
   "type": "module",
   "main": "./lib/index.js",
   "exports": {
@@ -13,7 +13,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   },
   "dsh": {
     "bundle": {
@@ -27,6 +27,8 @@
     "cordis",
     "session",
     "rename",
+    "auto-rename",
+    "idle",
     "slash-command"
   ],
   "engines": {
